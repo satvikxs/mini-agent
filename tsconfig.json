@@ -1,0 +1,24 @@
+{
+  // We never compile. Node runs the .ts files directly by stripping the types.
+  // This config exists so `npm run typecheck` can check them.
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": ["esnext"],
+    "types": ["node"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+
+    // Required for the "run TypeScript directly" setup:
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    // Rejects any syntax Node cannot simply erase (enums, parameter properties,
+    // namespaces). If it typechecks, it runs.
+    "erasableSyntaxOnly": true
+  },
+  "include": ["src", "test", "scripts"]
+}
