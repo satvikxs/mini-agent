@@ -4,9 +4,18 @@ import { background, cursor, motion, pointer } from "./tokens.ts";
 export type KeyName =
   | ("char" | "return" | "escape" | "tab" | "backspace" | "delete")
   | ("up" | "down" | "left" | "right" | "pageup" | "pagedown" | "home" | "end")
-  | ("wheelup" | "wheeldown");
+  | ("wheelup" | "wheeldown" | "click");
 
-export type Key = { name: KeyName; text: string; ctrl: boolean; shift: boolean; meta: boolean };
+/** `row` and `column` are 1-based, as the terminal reports them, and only a click carries them. */
+export type Key = {
+  name: KeyName;
+  text: string;
+  ctrl: boolean;
+  shift: boolean;
+  meta: boolean;
+  row?: number;
+  column?: number;
+};
 
 export type Screen = {
   readonly rows: number;
@@ -39,7 +48,9 @@ function seek(pattern: RegExp, text: string, at: number): RegExpExecArray | null
   return pattern.exec(text);
 }
 
-const MOUSE = /\x1b\[<(\d+);\d+;\d+[Mm]/y;
+const MOUSE = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/y;
+/** Left, middle and right going down. 64 and up is the wheel, and 32 is added while dragging. */
+const BUTTONS = 3;
 /** Cursor-position answers and mode replies: terminal chatter, never keystrokes. */
 const REPLY = /\x1b\[(?:\d+;\d+R|\?[\d;]*\$?[a-zA-Z])/y;
 const CSI = /\x1b\[(\d*)(?:;(\d+))?([A-Za-z~])/y;
@@ -68,13 +79,19 @@ function decode(text: string, flush: boolean): { keys: Key[]; pending: string } 
         continue;
       }
 
-      const wheel = seek(MOUSE, text, at);
-      if (wheel) {
-        // Everything but the wheel is swallowed. A click report that reached the
-        // composer would be typed into it as literal text.
-        if (wheel[1] === "64") keys.push(key("wheelup"));
-        else if (wheel[1] === "65") keys.push(key("wheeldown"));
-        at += wheel[0].length;
+      const mouse = seek(MOUSE, text, at);
+      if (mouse) {
+        const [whole, button = "", atColumn = "", atRow = "", updown = ""] = mouse;
+        if (button === "64") keys.push(key("wheelup"));
+        else if (button === "65") keys.push(key("wheeldown"));
+        // Only the press is worth reporting: the matching release says the same
+        // thing a second time, and a drag arrives with 32 added to the button.
+        else if (updown === "M" && Number(button) < BUTTONS) {
+          keys.push({ ...key("click"), row: Number(atRow), column: Number(atColumn) });
+        }
+        // Whatever is left is swallowed rather than fallen through — a report
+        // that reached the composer would be typed into it as literal text.
+        at += whole.length;
         continue;
       }
 

@@ -15,7 +15,6 @@ export const COMMANDS: Command[] = [
   { name: "cost", summary: "tokens and time for this session" },
   { name: "model", summary: "show the model, or switch it", usage: "/model [name]" },
   { name: "mode", summary: "ask before running commands, or don't", usage: "/mode [ask|auto]" },
-  { name: "thinking", summary: "unfold the model's reasoning, or fold it away", usage: "/thinking [on|off]" },
   { name: "clear", summary: "empty the transcript, keep the conversation" },
   { name: "reset", summary: "forget the conversation entirely" },
   { name: "copy", summary: "put the last answer on the clipboard" },

@@ -42,8 +42,20 @@ describe("decodeKeys", () => {
     assert.deepEqual(read("\x1b[200~half"), []);
   });
 
-  test("keeps the wheel and swallows every other mouse report", () => {
-    assert.deepEqual(read("\x1b[<64;1;1M\x1b[<0;1;1M\x1b[<65;1;1M"), ["wheelup", "wheeldown"]);
+  test("keeps the wheel and the press, and swallows every other mouse report", () => {
+    // A release repeats what the press already said, and a drag arrives with 32
+    // added to the button; neither is a second thing the reader did.
+    assert.deepEqual(
+      read("\x1b[<64;1;1M\x1b[<0;1;1M\x1b[<0;1;1m\x1b[<32;4;9M\x1b[<65;1;1M"),
+      ["wheelup", "click", "wheeldown"],
+    );
+  });
+
+  test("carries where the click landed", () => {
+    const [click] = decodeKeys("\x1b[<0;12;7M");
+    // Column then row, exactly as the terminal orders them, and 1-based.
+    assert.equal(click?.column, 12);
+    assert.equal(click?.row, 7);
   });
 
   test("swallows the terminal's own replies", () => {

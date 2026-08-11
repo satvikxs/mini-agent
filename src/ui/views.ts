@@ -30,6 +30,18 @@ const TABS: Tab[] = [{ key: "", label: "mini-agent" }];
 /** Blank, three rows of tab bar, blank, composer, blank, three footer rows. */
 const CHROME = 10;
 
+/** Everything above the transcript: a blank, the three-row tab bar, another blank. */
+const head = (width: number): string[] => ["", ...tabs(TABS, 0, width), ""];
+
+/**
+ * The frame row the transcript starts on, counting from 0.
+ *
+ * Exported because a click arrives as a screen row and has to be turned back
+ * into a transcript row. A test draws a real frame and looks for the body at
+ * this offset, so the constant cannot drift away from `head`.
+ */
+export const BODY_TOP = 5;
+
 const PLACEHOLDER = "ask, or / for skills";
 
 /** The driver fills against this, so a body that disagreed by a row cannot scroll the terminal. */
@@ -113,9 +125,7 @@ export function frame(props: FrameProps): string[] {
       : transcript;
 
   const lines = [
-    "",
-    ...tabs(TABS, 0, width),
-    "",
+    ...head(width),
     ...sized(body, bodyHeight),
     ...palette.map((line) => fit(line, width)),
     composerRow(props.composer.value, props.composer.cursor, width, props.composer.busy),
