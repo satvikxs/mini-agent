@@ -4,12 +4,12 @@ import { forget } from "./onboard.ts";
 import { createManager, type Session } from "./agents.ts";
 import type { Skill } from "./skills.ts";
 import { parseInvocation } from "./ui/invocation.ts";
-import { ledgerLines, maxScroll, windowLines } from "./ui/ledger.ts";
+import { ledgerLines, ledgerView, maxScroll, sourceAt, windowLines, windowRange, type Entry } from "./ui/ledger.ts";
 import { authorisesRun, commandArgs, commandQuery, isPaletteOpen, moveSelection, paletteHeight, paletteRows, rankCandidates, skillCandidates, type Candidate } from "./ui/palette.ts";
 import { openScreen, type Key } from "./ui/screen.ts";
 import { count, strings } from "./ui/strings.ts";
 import { glyph } from "./ui/tokens.ts";
-import { frame, measureFrame, type Group, type Pane, type Row as ViewRow } from "./ui/views.ts";
+import { BODY_TOP, frame, measureFrame, type Group, type Pane, type Row as ViewRow } from "./ui/views.ts";
 
 const MAX_ROWS = 6;
 const PAGE = 6;
@@ -102,8 +102,8 @@ export function runTui(options: TuiOptions): Promise<number> {
       value: "", cursor: 0, picked: false, paletteIndex: 0,
       history: [] as string[], historyIndex: 0,
       lastCtrlC: 0, note: "",
-      /** Whether reasoning is unfolded. One setting for the whole transcript. */
-      thinking: false,
+      /** The reasoning blocks the reader has clicked open, by entry identity. */
+      open: new Set<Entry>(),
     };
 
     let ticker: NodeJS.Timeout | null = null;
@@ -161,7 +161,7 @@ export function runTui(options: TuiOptions): Promise<number> {
       // Home sets the transcript in the detail column; the agent pane gets the whole width.
       const session = current();
       const width = layout.width;
-      const body = session ? ledgerLines(session.entries, width, session.live, state.thinking) : [];
+      const body = session ? ledgerLines(session.entries, width, session.live, state.open) : [];
 
       screen.draw(frame({
         columns: screen.columns,
@@ -218,11 +218,40 @@ export function runTui(options: TuiOptions): Promise<number> {
       // Re-measured rather than remembered: the terminal may have been resized since.
       const layout = measureFrame(screen.columns, screen.rows, palRows);
       const width = layout.width;
-      const total = ledgerLines(session.entries, width, session.live, state.thinking).length;
+      const total = ledgerLines(session.entries, width, session.live, state.open).length;
       const step = (page ? layout.bodyHeight : WHEEL) * (up ? 1 : -1);
 
       // 0 is pinned to the tail, which is how new output follows without being chased.
       session.scrollUp = Math.max(0, Math.min(session.scrollUp + step, maxScroll(total, layout.bodyHeight)));
+    }
+
+    /**
+     * A click anywhere on a block of reasoning opens it, or folds it away again.
+     *
+     * The whole block is the target rather than the `+N more` label alone: the
+     * label is a few columns wide at the end of a dim row, and a fold that only
+     * answers to a precise hit reads as one that does not answer at all.
+     */
+    function toggleAt(screenRow: number, palRows: number): void {
+      const session = current();
+      // The transcript only owns the full width in the agent pane. In the split
+      // view a row is shared with the roster, so the column would have to be
+      // placed as well, and there is nothing yet that opens that view.
+      if (!session || state.view !== "agent") return;
+
+      const layout = measureFrame(screen.columns, screen.rows, palRows);
+      // Reported 1-based, and measured from the top of the frame rather than the body.
+      const row = screenRow - 1 - BODY_TOP;
+      if (row < 0 || row >= layout.bodyHeight) return;
+
+      const view = ledgerView(session.entries, layout.width, session.live, state.open);
+      const at = sourceAt(windowRange(view.lines.length, layout.bodyHeight, session.scrollUp), row);
+      const entry = at < 0 ? null : view.owners[at];
+      if (!entry) return;
+
+      // delete() reports whether it removed anything, which is the whole toggle.
+      if (!state.open.delete(entry)) state.open.add(entry);
+      render();
     }
 
     function submit(text: string): void {
@@ -261,11 +290,6 @@ export function runTui(options: TuiOptions): Promise<number> {
         case "/cost": say(costText(manager.cost())); break;
         case "/model": say(args ? manager.setModel(args) : `model: ${manager.model}`); break;
         case "/mode": say(manager.setMode(args)); break;
-        case "/thinking":
-          // Named on/off explicitly, or flipped when neither is given.
-          state.thinking = args === "on" ? true : args === "off" ? false : !state.thinking;
-          say(state.thinking ? strings.thinkingShown : strings.thinkingHidden);
-          break;
         case "/clear": session.entries.length = 0; break;
         case "/reset": manager.reset(session.id); break;
         case "/copy": say(copyLast(session)); break;
@@ -352,6 +376,10 @@ export function runTui(options: TuiOptions): Promise<number> {
         scroll(key.name.startsWith("page"), key.name === "pageup" || key.name === "wheelup", palRows);
         return render();
       }
+
+      // Ahead of the composer keys: a click carries no text, and falling through
+      // would leave it looking like an ordinary keystroke with an empty one.
+      if (key.name === "click") return toggleAt(key.row ?? 0, palRows);
 
       if (key.name === "return") {
         const text = state.value.trim();

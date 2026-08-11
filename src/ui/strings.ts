@@ -93,17 +93,16 @@ A Claude model goes to that endpoint's /v1/messages; any other model goes to its
   /**
    * What a folded block of reasoning is hiding, and how to open it.
    *
-   * The count alone reads as a control, and in a scrolling transcript there is
-   * nothing to click — so the row names the thing that actually unfolds it,
-   * which differs by surface: a command in the full screen, a flag outside it.
+   * The count alone reads as a control without saying what to do with it, so the
+   * row names the thing that actually unfolds it — which differs by surface: the
+   * block itself is the target in the full screen, a flag outside it, where a
+   * printed transcript has nothing to point at.
    */
   more: (lines: number) => `+${lines} more`,
   moreWith: (lines: number, how: string) => `+${lines} more · ${how}`,
-  /** What unfolds it, named per surface: a command inside the full screen, a flag outside it. */
-  thinkingCommand: "/thinking",
+  /** What unfolds it, named per surface: the pointer inside the full screen, a flag outside it. */
+  thinkingClick: "click",
   thinkingFlag: "--thinking",
-  thinkingShown: "showing the model's reasoning",
-  thinkingHidden: "reasoning folded to one line — /thinking to open it",
 
   cancelled: "cancelled",
 

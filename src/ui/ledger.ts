@@ -20,46 +20,73 @@ const MIN_PREVIEW = 24;
 
 const cache = new WeakMap<Entry, { width: number; open: boolean; lines: string[] }>();
 
+/**
+ * Which reasoning entries are unfolded, held by identity.
+ *
+ * Per entry rather than one flag for the transcript, because the way it is
+ * opened is now a click on one block: the reader asks about the turn under the
+ * pointer, not about every turn at once. `settle` pushes a reasoning entry once
+ * and never patches it, so the object itself is a stable enough key.
+ */
+export type Folds = ReadonlySet<Entry>;
+
+const NONE: Folds = new Set<Entry>();
+
 /** A blank row goes between kinds, and between one turn and the next. */
 const separates = (previous: Entry["kind"], next: Entry["kind"]): boolean =>
   previous !== next || next === "user" || next === "answer";
 
+/** The rows, and for each the reasoning entry it belongs to — what a click lands on. */
+export type View = { lines: string[]; owners: ReadonlyArray<Entry | null> };
+
 /**
  * The transcript as rows already painted and already fitted, so scrolling is a slice.
  *
- * `open` expands the reasoning entries. It is a render-time argument rather
- * than a field on them, because it is one setting for the whole transcript:
- * folding thinking away is a decision about how much of the model's working you
- * want to read, not about any one turn.
+ * Every row is tagged with the entry that drew it, so a click on any line of a
+ * reasoning block — folded or open — can find its way back to the entry to
+ * toggle. Only reasoning is tagged: nothing else has a folded state to be in.
  */
-export function ledgerLines(entries: readonly Entry[], width: number, live?: string, open = false): string[] {
+export function ledgerView(entries: readonly Entry[], width: number, live?: string, open: Folds = NONE): View {
   const lines: string[] = [];
+  const owners: (Entry | null)[] = [];
   let previous: Entry["kind"] | null = null;
 
+  const push = (rendered: readonly string[], owner: Entry | null): void => {
+    for (const row of rendered) {
+      lines.push(row);
+      owners.push(owner);
+    }
+  };
+
   for (const entry of entries) {
+    const unfolded = open.has(entry);
     const hit = cache.get(entry);
-    const fresh = hit?.width === width && hit.open === open;
-    const rendered = fresh ? hit.lines : render(entry, width, open);
+    const fresh = hit?.width === width && hit.open === unfolded;
+    const rendered = fresh ? hit.lines : render(entry, width, unfolded);
     // Entries are immutable — the driver swaps in a fresh object rather than patching
     // one — so a hit at the same width is still true, and a rewind evicts by GC.
-    if (!fresh) cache.set(entry, { width, open, lines: rendered });
+    if (!fresh) cache.set(entry, { width, open: unfolded, lines: rendered });
 
     if (rendered.length === 0) continue; // an entry that draws nothing earns no separator either
-    if (previous && separates(previous, entry.kind)) lines.push("");
-    lines.push(...rendered);
+    if (previous && separates(previous, entry.kind)) push([""], null);
+    push(rendered, entry.kind === "thinking" ? entry : null);
     previous = entry.kind;
   }
 
   // Drawn exactly as the committed answer will be, so nothing jumps when it commits.
   if (live) {
     const rendered = answerLines(live, width);
-    if (rendered.length === 0) return lines;
-    if (lines.length > 0) lines.push("");
-    lines.push(...rendered);
+    if (rendered.length === 0) return { lines, owners };
+    if (lines.length > 0) push([""], null);
+    push(rendered, null);
   }
 
-  return lines;
+  return { lines, owners };
 }
+
+/** The rows alone, for everything that draws the transcript without pointing at it. */
+export const ledgerLines = (entries: readonly Entry[], width: number, live?: string, open?: Folds): string[] =>
+  ledgerView(entries, width, live, open).lines;
 
 function render(entry: Entry, width: number, open: boolean): string[] {
   switch (entry.kind) {
@@ -116,10 +143,10 @@ function thinkingLines(text: string, width: number, open: boolean): string[] {
   if (hidden === 0) return [paint(rows[0]!, 0)];
 
   // The row would rather name what unfolds it, but not at the price of the
-  // preview: a fold that says `/thinking` and shows four words of reasoning has
+  // preview: a fold that says `click` and shows four words of reasoning has
   // spent the line explaining itself instead of being useful.
   const room = (label: string): number => width - 2 - label.length - 2;
-  const named = strings.moreWith(hidden, strings.thinkingCommand);
+  const named = strings.moreWith(hidden, strings.thinkingClick);
   const more = room(named) >= MIN_PREVIEW ? named : strings.more(hidden);
 
   const head = truncate(rows[0]!, Math.max(1, room(more)));
@@ -164,24 +191,54 @@ function noteLines(text: string, width: number): string[] {
 }
 
 /**
+ * Which transcript rows a pane of `height` shows, and what sits around them.
+ *
+ * Split out of `windowLines` so that drawing the pane and pointing at it agree
+ * by construction: a click is mapped back through the same arithmetic that put
+ * the row on screen, rather than through a second copy of it that can drift.
+ */
+export type Window = {
+  /** First transcript row shown. */
+  start: number;
+  /** How many are shown. */
+  count: number;
+  /** Blank rows above them, since a short transcript sits on the floor of the pane. */
+  pad: number;
+  /** Whether the "more below" row was appended. */
+  hint: boolean;
+};
+
+export function windowRange(total: number, height: number, scrollUp: number): Window {
+  const h = Math.max(1, height);
+  const bodyH = scrollUp > 0 && total > h ? Math.max(1, h - 1) : h;
+  const up = Math.min(scrollUp, Math.max(0, total - bodyH));
+  const start = Math.max(0, total - bodyH - up);
+  const count = Math.max(0, Math.min(bodyH, total - start));
+  // In a pane one row tall the body has already taken the reservation back.
+  const hint = up > 0 && total - (start + count) > 0 && count < h;
+
+  return { start, count, pad: Math.max(0, h - count - (hint ? 1 : 0)), hint };
+}
+
+/**
  * The slice a pane of `height` rows shows, anchored to the bottom. The hint row is
  * reserved before the body is sized; taking it back after is a row of overflow.
  */
 export function windowLines(lines: readonly string[], height: number, scrollUp: number): string[] {
-  const h = Math.max(1, height);
-  const total = lines.length;
-  const bodyH = scrollUp > 0 && total > h ? Math.max(1, h - 1) : h;
-  const up = Math.min(scrollUp, Math.max(0, total - bodyH));
-  const start = Math.max(0, total - bodyH - up);
+  const { start, count, pad, hint } = windowRange(lines.length, height, scrollUp);
 
   // A blank row still has to occupy a row, so it is drawn as a space.
-  const rows = lines.slice(start, start + bodyH).map((line) => (line.length === 0 ? " " : line));
-  const below = total - (start + rows.length);
-  // In a pane one row tall the body has already taken the reservation back.
-  if (up > 0 && below > 0 && rows.length < h) rows.push(`  ${color.dim(`↓ ${below} more below`)}`);
+  const rows = lines.slice(start, start + count).map((line) => (line.length === 0 ? " " : line));
+  if (hint) rows.push(`  ${color.dim(`↓ ${lines.length - (start + count)} more below`)}`);
 
   // Padded at the head, so three lines sit on the floor of the pane as three hundred do.
-  return [...Array(Math.max(0, h - rows.length)).fill(""), ...rows];
+  return [...Array(pad).fill(""), ...rows];
+}
+
+/** Which transcript row a pane row came from; -1 for the padding above and the hint below. */
+export function sourceAt(window: Window, row: number): number {
+  const at = row - window.pad;
+  return at >= 0 && at < window.count ? window.start + at : -1;
 }
 
 export const maxScroll = (total: number, height: number): number =>

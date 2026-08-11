@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { displayWidth } from "../src/ui/layout.ts";
-import { composerRow, frame, measureFrame, type FrameProps } from "../src/ui/views.ts";
+import { BODY_TOP, composerRow, frame, measureFrame, type FrameProps } from "../src/ui/views.ts";
 
 const props = (over: Partial<FrameProps> = {}): FrameProps => ({
   columns: 100,
@@ -52,6 +52,18 @@ describe("frame", () => {
   test("carries nothing but colour, so no line can move the cursor", () => {
     for (const line of frame(props({ palette: ["find 1 command", "❯ /new"] }))) {
       assert.doesNotMatch(line.replace(/\x1b\[[0-9;]*m/g, ""), /\x1b/);
+    }
+  });
+
+  test("starts the transcript at BODY_TOP, which is where clicks are mapped from", () => {
+    // A click arrives as a screen row and is turned back into a transcript row
+    // by subtracting this. If the chrome above the body ever gains or loses a
+    // row, every click lands on the wrong line — so it is pinned to a real frame.
+    const marker = "› the first row of the body";
+    for (const [columns, rows] of [[40, 12], [80, 24], [200, 60]] as const) {
+      const lines = frame(props({ columns, rows, view: "agent", transcript: [marker] }));
+      const plain = (lines[BODY_TOP] ?? "").replace(/\x1b\[[0-9;]*m/g, "");
+      assert.ok(plain.includes(marker), `${columns}×${rows}: found "${plain.trim()}"`);
     }
   });
 });
