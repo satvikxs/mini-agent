@@ -22,7 +22,7 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@types/node": "^24.10.1",
+    "@types/node": "^24.13.4",
     "typescript": "^5.9.3"
   },
   "license": "MIT",
