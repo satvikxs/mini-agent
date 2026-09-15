@@ -33,15 +33,13 @@ import { play, repaint } from "./ui/motion.ts";
 import { trackClicks } from "./ui/pointer.ts";
 import { strings } from "./ui/strings.ts";
 import { color, cursor, motion, rule, space } from "./ui/tokens.ts";
+import { VERSION } from "./version.ts";
 
 /** Sixty frames a second. Below that the goat visibly steps rather than runs. */
 const FRAME_MS = 16;
 
 /** How long `goat` has to sit on the prompt before the goat takes it. */
 const SETTLE_MS = 250;
-
-/** Shown on the first-run screen, so it matches what was installed. */
-const VERSION = `v${process.env["npm_package_version"] ?? "1.0.0"}`;
 
 /** The skills a parsed line named, for handing to `agent.send`. */
 const named = (invocation: Invocation): string[] =>
